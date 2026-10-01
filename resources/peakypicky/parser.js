@@ -314,31 +314,74 @@ function movingAverage(y, w){
   return out;
 }
 
-// sensitivity 1..10 -> minimum peak prominence, as a fraction of the curve's own
-// (smoothed) amplitude range. Higher sensitivity = lower threshold = more peaks.
+// sensitivity 1..10 -> minimum peak prominence, as a fraction of the curve's
+// amplitude (tallest smoothed point above the baseline median, post-injection).
+// Higher sensitivity = lower threshold = more peaks.
 function sensitivityToMinPromFrac(sensitivity){
   const s = Math.min(10, Math.max(1, sensitivity||DEFAULT_AUTO_SENSITIVITY));
   return 0.11 - (s-1)*0.0095; // s=1 -> 0.11, s=10 -> 0.0245
 }
 
+// A prominence this many noise sigmas is the lower bound on any detected peak, so a
+// curve with no real peaks doesn't turn its baseline wiggles into peaks.
+const NOISE_FLOOR_SIGMAS = 10;
+
+function median(arr){
+  const n = arr.length;
+  if(!n) return NaN;
+  const s = Float64Array.from(arr).sort();
+  return n%2 ? s[(n-1)/2] : (s[n/2-1]+s[n/2])/2;
+}
+
+// High-frequency noise level of the raw trace, independent of peak heights and of
+// baseline offsets/drift (so a huge aggregate peak or a -500 autozero dip can't
+// inflate it). It does not see slow baseline wander, so it is only a floor on the
+// threshold. Robust sigma from the MAD of the first differences,
+// sigma = 1.4826 * MAD(dy) / sqrt(2), plus a resolution floor (3x the typical
+// non-zero step) so a flat, quantized baseline can't collapse it to ~0.
+// Only points with index >= i0 are used.
+function estimateNoise(y, i0){
+  const d = [];
+  for(let i=Math.max(1,i0+1);i<y.length;i++) d.push(Math.abs(y[i]-y[i-1]));
+  if(!d.length) return 0;
+  const sigma = 1.4826 * median(d) / Math.SQRT2;
+  const steps = d.filter(v=>v>0);
+  const floor = steps.length ? 3*median(steps) : 0;
+  return Math.max(sigma, floor);
+}
+
 // Returns detected peaks as {retention, height, prominence, name:'', hidden:false,
 // auto:true}, in the curve's own raw x/y coordinates (the same space UNICORN-
 // sourced peaks use before any run offset/injection-zero correction is applied).
-function detectPeaksForCurve(x, y, sensitivity){
+// `xStart` (optional, e.g. the injection volume) excludes everything before it from
+// the amplitude/noise estimates and from the peak candidates.
+function detectPeaksForCurve(x, y, sensitivity, xStart){
   const n = y ? y.length : 0;
   if(n < 5) return [];
+  let i0 = 0;
+  if(xStart!=null && isFinite(xStart)){
+    while(i0<n && x[i0]<xStart) i0++;
+    if(n-i0 < 5) i0 = 0; // too little left after the cut: use the whole curve
+  }
   const smoothWin = Math.max(3, Math.round(n/400));
   const ys = movingAverage(y, smoothWin);
-  let ymin=Infinity, ymax=-Infinity;
-  for(let i=0;i<n;i++){ if(ys[i]<ymin)ymin=ys[i]; if(ys[i]>ymax)ymax=ys[i]; }
-  const range = ymax-ymin;
-  if(!isFinite(range) || range<=0) return [];
-  const minProm = range * sensitivityToMinPromFrac(sensitivity);
+  // Amplitude = tallest smoothed point above the median baseline, measured only
+  // after the cut. One-sided and median-based, so a large negative excursion (e.g.
+  // a -500 autozero dip) can't inflate it; using the smoothed trace keeps a
+  // single-point spike from setting the scale.
+  const tail = ys.subarray(i0);
+  let ymax = -Infinity;
+  for(let i=0;i<tail.length;i++) if(tail[i]>ymax) ymax = tail[i];
+  const amp = ymax - median(tail);
+  if(!isFinite(amp) || amp<=0) return [];
+  // noise of the smoothed trace (white-noise approximation: sigma/sqrt(window))
+  const noise = estimateNoise(y, i0) / Math.sqrt(smoothWin);
+  const minProm = Math.max(amp * sensitivityToMinPromFrac(sensitivity), noise * NOISE_FLOOR_SIGMAS);
   const minSeparationPts = Math.max(3, Math.round(n*0.008));
   const k = Math.max(2, Math.round(minSeparationPts/2));
 
   let candidates = [];
-  for(let i=k;i<n-k;i++){
+  for(let i=Math.max(k,i0);i<n-k;i++){
     let isMax = true;
     for(let j=i-k;j<=i+k;j++){ if(j!==i && ys[j]>ys[i]){ isMax=false; break; } }
     if(isMax) candidates.push(i);
@@ -461,7 +504,7 @@ window.PeakyParse = {
   textOf, findInjectionVolume, curveDisplayLabelRaw, pickDefaultUvCurve,
   parseResultInfo, parseUnicornExport,
   findAllSig, parseNRBF, decodeCurveFile,
-  DEFAULT_AUTO_SENSITIVITY, movingAverage, sensitivityToMinPromFrac, detectPeaksForCurve,
+  DEFAULT_AUTO_SENSITIVITY, movingAverage, sensitivityToMinPromFrac, estimateNoise, detectPeaksForCurve,
   kav, fitKavLogLinear, fitVeLogLinear, calibrationFit, estimateMW, fmtMW
 };
 

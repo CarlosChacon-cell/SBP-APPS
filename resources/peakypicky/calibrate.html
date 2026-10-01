@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23215E93'/><text y='72' x='50' text-anchor='middle' font-size='58' font-family='sans-serif' font-weight='700' fill='white'>P</text></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="parser.js?v=20260918-1850"></script>
+<script src="parser.js?v=20261001-1200"></script>
 <style>
 :root{
   --paper:#0f1720;--panel:#16212e;--ink:#e8eef4;--ink-soft:#9fb0c0;
@@ -34,7 +34,7 @@ header .divider{width:1px;align-self:stretch;background:var(--line);margin:0 2px
 header .tagline{font-size:12px;color:var(--ink-soft);font-family:var(--sans);}
 #thbtn{margin-left:auto;flex-shrink:0;background:none;border:1px solid var(--line);color:var(--ink-soft);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:var(--sans);}
 #thbtn:hover{border-color:var(--accent1);color:var(--ink);}
-.wrap{max-width:680px;margin:0 auto;padding:24px 18px 60px;}
+.wrap{max-width:1000px;margin:0 auto;padding:24px 18px 60px;}
 section.block{margin-bottom:22px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;}
 .block h2{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-soft);margin:0 0 10px;display:flex;align-items:center;gap:6px;}
 .block h2::after{content:"";flex:1;height:1px;background:var(--line);}
@@ -71,6 +71,23 @@ table.fit-table{width:100%;font-family:var(--mono);font-size:10.5px;border-colla
 table.fit-table td{padding:3px 6px;border-bottom:1px solid var(--line-soft);}
 table.fit-table tr:first-child td{color:var(--ink-soft);font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;}
 textarea{background:var(--inp);color:var(--ink);border:1px solid var(--line);border-radius:6px;font-family:var(--mono);font-size:11px;}
+.side-by-side{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;}
+.side-main{flex:1 1 340px;min-width:0;}
+.side-plot{flex:1 1 360px;min-width:0;}
+svg.chrom{display:block;width:100%;max-width:520px;background:var(--inp);border:1px solid var(--line);border-radius:6px;}
+.chrom .ax{stroke:var(--ink-soft);stroke-width:1;}
+.chrom .gr{stroke:var(--line-soft);stroke-width:1;}
+.chrom .tr{fill:none;stroke:var(--accent1);stroke-width:1.2;stroke-linejoin:round;}
+.chrom .tk,.chrom .pl,.chrom .rt{font:9px var(--mono);}
+.chrom .tk{fill:var(--ink-soft);}
+.chrom .pk{fill:var(--ink-soft);}
+.chrom .pl{fill:var(--ink-soft);}
+.chrom .pk.hi{fill:var(--accent2);}
+.chrom .pl.hi{fill:var(--accent2);font-weight:700;}
+.chrom .rl{stroke:var(--accent3);stroke-width:1;stroke-dasharray:3 3;}
+.chrom .rt{fill:var(--accent3);}
+.plot-legend{font-family:var(--mono);font-size:9.5px;color:var(--ink-soft);margin-top:4px;line-height:1.5;}
+.plot-legend .k1{color:var(--ink-soft);}.plot-legend .k2{color:var(--accent2);}.plot-legend .k3{color:var(--accent3);}
 ::-webkit-scrollbar{width:9px;height:9px;}
 ::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;}
 ::-webkit-scrollbar-track{background:transparent;}
@@ -104,9 +121,14 @@ textarea{background:var(--inp);color:var(--ink);border:1px solid var(--line);bor
     </div>
     <div id="voidInfo" style="display:none; margin-top:10px;">
       <div id="voidMeta" class="mw-note"></div>
-      <label class="field">Detection sensitivity: <span id="voidSensVal">5</span></label>
-      <input type="range" id="voidSensitivity" min="1" max="10" step="1" value="5" style="width:100%;">
-      <div id="voidPeakList" style="margin-top:6px;"></div>
+      <div class="side-by-side">
+        <div class="side-main">
+          <label class="field">Detection sensitivity: <span id="voidSensVal">5</span></label>
+          <input type="range" id="voidSensitivity" min="1" max="10" step="1" value="5" style="width:100%;">
+          <div id="voidPeakList" style="margin-top:6px;"></div>
+        </div>
+        <div class="side-plot" id="voidPlot"></div>
+      </div>
     </div>
   </section>
 
@@ -253,7 +275,7 @@ async function handleVoidFile(file){
 }
 
 function runVoidDetection(){
-  const raw = PeakyParse.detectPeaksForCurve(voidState.curve.x, voidState.curve.y, voidState.sensitivity);
+  const raw = PeakyParse.detectPeaksForCurve(voidState.curve.x, voidState.curve.y, voidState.sensitivity, voidState.result.injectionVolume);
   const inj = voidState.result.injectionVolume;
   const candidates = raw
     .map(p=>({...p, ve: inj!=null ? p.retention-inj : p.retention}))
@@ -328,7 +350,7 @@ async function handleStdFile(file){
 // exclusion chromatography, regardless of which order the filename lists them in.
 function autoAssignRows(run){
   const inj = run.result.injectionVolume;
-  const raw = PeakyParse.detectPeaksForCurve(run.curve.x, run.curve.y, run.sensitivity);
+  const raw = PeakyParse.detectPeaksForCurve(run.curve.x, run.curve.y, run.sensitivity, inj);
   const candidates = raw
     .map(p=>({...p, ve: inj!=null ? p.retention-inj : p.retention}))
     .filter(p=>p.ve > 0);
@@ -361,9 +383,11 @@ function renderStdRuns(){
     return '<div class="cal-run-card">'+
       '<div class="run-header"><span>'+escapeHtml(run.fileName)+'</span>'+
         '<button type="button" class="run-remove" data-run="'+ri+'" title="remove run">✕</button></div>'+
+      '<div class="side-by-side"><div class="side-main">'+
       '<div class="run-offset-label" style="margin-bottom:6px;">sensitivity <input type="range" class="cr-sens" data-run="'+ri+'" min="1" max="10" step="1" value="'+run.sensitivity+'" style="width:70px; vertical-align:middle;"> · all detected peaks: '+otherPeaks+'</div>'+
       rows +
       '<button type="button" class="btn-mini cr-addrow" data-run="'+ri+'">+ add row</button>'+
+      '</div><div class="side-plot cr-plot" data-run="'+ri+'"></div></div>'+
     '</div>';
   }).join('');
 }
@@ -476,7 +500,114 @@ function computeCalibrationObject(){
   };
 }
 
+// ---------- chromatogram preview (so the detected peaks can be checked by eye) ----------
+
+function niceTicks(lo, hi, target){
+  const span = hi - lo;
+  if(!(span > 0)) return [lo];
+  const raw = span / target, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1,2,5,10].map(m=>m*mag).find(st=>st>=raw);
+  const out = [];
+  for(let v=Math.ceil(lo/step)*step; v<=hi+step*1e-9; v+=step) out.push(+v.toFixed(10));
+  return out;
+}
+function fmtTick(v){ return (+v.toPrecision(4)).toString(); }
+
+// Inline-SVG trace of `curve` from the injection onward (x = mL from injection, the
+// same Ve the table uses), with every detected peak marked. opts.selected = the
+// chosen void peak; opts.rows = the enabled standards rows, drawn as dashed lines
+// at their Ve, and any detected peak sitting on one is highlighted.
+function buildChromatogramSVG(curve, inj, candidates, opts){
+  opts = opts || {};
+  const W=440, H=230, ml=46, mr=10, mt=18, mb=30;
+  const xs = curve.x, ys = curve.y, n = ys.length;
+  let off = inj!=null ? inj : 0, i0 = 0;
+  if(inj!=null) while(i0<n && xs[i0]<inj) i0++;
+  if(n-i0 < 2){ i0 = 0; off = 0; }
+  const pts = [], cnt = n - i0;
+  if(cnt <= 1000){
+    for(let i=i0;i<n;i++) pts.push([xs[i]-off, ys[i]]);
+  } else { // min/max per bucket, so narrow peaks survive the downsampling
+    const b = Math.ceil(cnt/500);
+    for(let s=i0;s<n;s+=b){
+      const e = Math.min(n, s+b);
+      let lo = s, hi = s;
+      for(let i=s+1;i<e;i++){ if(ys[i]<ys[lo]) lo=i; if(ys[i]>ys[hi]) hi=i; }
+      const a = Math.min(lo,hi), c = Math.max(lo,hi);
+      pts.push([xs[a]-off, ys[a]]);
+      if(c!==a) pts.push([xs[c]-off, ys[c]]);
+    }
+  }
+  let xmin=Infinity, xmax=-Infinity, ymin=Infinity, ymax=-Infinity;
+  pts.forEach(([px,py])=>{
+    if(!isFinite(px) || !isFinite(py)) return;
+    if(px<xmin) xmin=px; if(px>xmax) xmax=px;
+    if(py<ymin) ymin=py; if(py>ymax) ymax=py;
+  });
+  if(!(xmax>xmin)) return '<div class="empty-note">No curve data to plot.</div>';
+  const pad = (ymax>ymin ? ymax-ymin : 1) * 0.08;
+  ymin -= pad; ymax += pad;
+  const sx = v => ml + (v-xmin)/(xmax-xmin)*(W-ml-mr);
+  const sy = v => H-mb - (v-ymin)/(ymax-ymin)*(H-mt-mb);
+
+  let svg = '<svg class="chrom" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="chromatogram preview">';
+  niceTicks(xmin, xmax, 6).forEach(t=>{
+    svg += '<line class="gr" x1="'+sx(t).toFixed(1)+'" y1="'+mt+'" x2="'+sx(t).toFixed(1)+'" y2="'+(H-mb)+'"/>'+
+           '<text class="tk" x="'+sx(t).toFixed(1)+'" y="'+(H-mb+11)+'" text-anchor="middle">'+fmtTick(t)+'</text>';
+  });
+  niceTicks(ymin, ymax, 4).forEach(t=>{
+    svg += '<line class="gr" x1="'+ml+'" y1="'+sy(t).toFixed(1)+'" x2="'+(W-mr)+'" y2="'+sy(t).toFixed(1)+'"/>'+
+           '<text class="tk" x="'+(ml-4)+'" y="'+(sy(t)+3).toFixed(1)+'" text-anchor="end">'+fmtTick(t)+'</text>';
+  });
+  svg += '<line class="ax" x1="'+ml+'" y1="'+(H-mb)+'" x2="'+(W-mr)+'" y2="'+(H-mb)+'"/>'+
+         '<line class="ax" x1="'+ml+'" y1="'+mt+'" x2="'+ml+'" y2="'+(H-mb)+'"/>';
+  svg += '<path class="tr" d="'+pts.filter(q=>isFinite(q[0])&&isFinite(q[1]))
+    .map((q,i)=>(i?'L':'M')+sx(q[0]).toFixed(1)+' '+sy(q[1]).toFixed(1)).join('')+'"/>';
+
+  const rows = (opts.rows||[]).filter(r=>isFinite(r.veMl) && r.veMl>=xmin && r.veMl<=xmax);
+  rows.forEach(r=>{
+    const label = r.name || (r.mw ? r.mw+' Da' : '');
+    svg += '<line class="rl" x1="'+sx(r.veMl).toFixed(1)+'" y1="'+mt+'" x2="'+sx(r.veMl).toFixed(1)+'" y2="'+(H-mb)+'"/>'+
+           (label ? '<text class="rt" x="'+(sx(r.veMl)+3).toFixed(1)+'" y="'+(mt+8)+'">'+escapeHtml(label)+'</text>' : '');
+  });
+  const tol = (xmax-xmin) * 0.02;
+  candidates.forEach(p=>{
+    const hi = p===opts.selected || rows.some(r=>Math.abs(r.veMl-p.ve) <= tol);
+    const cx = sx(p.ve), cy = sy(p.height);
+    if(!isFinite(cx) || !isFinite(cy)) return;
+    svg += '<circle class="pk'+(hi?' hi':'')+'" cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="'+(hi?4:3)+'"/>';
+    if(hi || candidates.length<=10)
+      svg += '<text class="pl'+(hi?' hi':'')+'" x="'+cx.toFixed(1)+'" y="'+(cy-7).toFixed(1)+'" text-anchor="middle">'+
+             (p===opts.selected ? 'V0 ' : '')+p.ve.toFixed(2)+'</text>';
+  });
+  svg += '<text class="tk" x="'+(ml+(W-ml-mr)/2)+'" y="'+(H-3)+'" text-anchor="middle">mL from injection</text>';
+  svg += '<text class="tk" x="4" y="'+(mt-6)+'">'+escapeHtml(curve.yUnit || '')+'</text>';
+  svg += '</svg>';
+  const legend = '<div class="plot-legend"><span class="k1">●</span> detected peak'+
+    (opts.selected ? ' · <span class="k2">●</span> selected V0' : '')+
+    (opts.rows ? ' · <span class="k2">●</span> peak matching a row · <span class="k3">┆</span> row Ve' : '')+
+    ' · '+escapeHtml(curve.name)+'</div>';
+  return svg + legend;
+}
+
+function refreshPlots(){
+  const vp = document.getElementById('voidPlot');
+  if(vp){
+    vp.innerHTML = voidState
+      ? buildChromatogramSVG(voidState.curve, voidState.result.injectionVolume, voidState.candidates,
+          {selected: voidState.candidates[voidState.selectedIdx]})
+      : '';
+  }
+  document.querySelectorAll('.cr-plot').forEach(el=>{
+    const run = stdRuns[+el.dataset.run];
+    if(!run) return;
+    el.innerHTML = buildChromatogramSVG(run.curve, run.result.injectionVolume, run.candidates,
+      {rows: run.rows.filter(r=>r.use)});
+  });
+}
+
 function updateFitIfReady(){
+  refreshPlots();
   const step3 = document.getElementById('step3'), step4 = document.getElementById('step4');
   const cal = computeCalibrationObject();
   if(!cal){
